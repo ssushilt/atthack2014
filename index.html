@@ -1,0 +1,336 @@
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <title>Speech in Motion</title>
+    
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+    <meta name="HandheldFriendly" content="True">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    
+    <link type="text/css" media="screen" rel="stylesheet" href="stylehack.css">
+    <link type="text/css" media="screen" rel="stylesheet" href="modal.css" />
+    <link href='http://fonts.googleapis.com/css?family=Roboto:400,300,900' rel='stylesheet' type='text/css'>
+    
+    
+<script language="JavaScript">
+  	var ws;
+  	var heading;
+  	var pitch;
+  	var roll;
+  	var panorama;
+  	var gmap;
+  	var geocoder;
+    var coordQueue = new Array();
+    var sampleSize = 10;
+    var isReqPending = false;
+    var audioCtx = new webkitAudioContext();
+
+  	var COMMAND_CAL_HEADSET = {
+	    type:"command",
+	    id:"cal"};
+	    
+        var MESSAGE_MOTION_TRACKING = {
+            type:"MOTION_TRACKING_SVC",
+            id: "heading"};
+   
+   
+   function resetQueue() {
+       coordQueue = [];
+       
+             document.getElementById("minPitch").innerHTML = "Min Pitch: ";
+      document.getElementById("maxPitch").innerHTML = "Max Pitch: ";
+      document.getElementById("minHeading").innerHTML = "Min Heading: ";
+      document.getElementById("maxHeading").innerHTML = "Max Heading: ";
+   }
+
+       function processMessage(msg) {
+	//Process message from context server. If relevant to RTC server, call applicable methods.
+		var messageType = msg.type;
+		if (MESSAGE_MOTION_TRACKING.type == messageType) {
+//			writeToConsole("PLT Labs motion tracking message received");
+			heading = 0;
+			pitch = 0;
+			roll = 0;
+			var coordinates = msg.payload.orientation;
+			if(coordinates){
+				var c = coordinates.split(",");
+				if(c){
+					heading = c[0];
+					pitch = c[1];
+					roll = c[2];
+          
+          coordQueue.push(c); // push to the end of the queue
+				}
+        
+        if (coordQueue.length > sampleSize) {
+          coordQueue.shift(); // remove first co-ord from the queue
+        }
+        
+        if (!isReqPending) {
+          checkAnswer();
+        }
+			}
+//			writeToConsole("Heading: " + heading + " Pitch: " + pitch + " Roll: " + roll);
+			document.getElementById("heading").innerHTML = "Heading: " + heading;
+			document.getElementById("pitch").innerHTML = "Pitch: " + pitch;
+			document.getElementById("roll").innerHTML = "Roll: " + roll;
+
+			// writeToConsole(JSON.stringify({heading: parseInt(heading, 10), pitch: 90}));
+
+        }
+       }
+
+        // function to check the co-ord queue to see if this was a yes or a no
+       function checkAnswer() {
+
+       var c = coordQueue[0];
+       var pValue = parseInt(c[1]);
+       var hValue = parseInt(c[0]);
+       var minPitch = pValue, maxPitch = pValue;
+       var minHeading = hValue, maxHeading = hValue;
+       
+       if (coordQueue.length >= sampleSize) {
+        for (var i = 1; i < coordQueue.length; i++) {
+          c = coordQueue[i];
+          pValue = parseInt(c[1]);
+          hValue = parseInt(c[0]);
+          if (pValue < minPitch) {
+          minPitch = pValue;
+        } else if (pValue > maxPitch) {
+          maxPitch = pValue;
+        }
+        
+        if (hValue < minHeading) {
+          minHeading = hValue;
+        } else if (hValue > maxHeading) {
+          maxHeading = hValue;
+        }
+        
+        //console.log('check answer: ' + c[0] + ', ' + c[1] + ', ' + c[2] + '\n');
+        }
+        
+        
+      document.getElementById("minPitch").innerHTML = "Min Pitch: " + minPitch;
+      document.getElementById("maxPitch").innerHTML = "Max Pitch: " + maxPitch;
+      document.getElementById("minHeading").innerHTML = "Min Heading: " + minHeading;
+      document.getElementById("maxHeading").innerHTML = "Max Heading: " + maxHeading;
+      
+      //console.log('min pitch: ' + minPitch + ', ' + maxPitch + ' -  ' + minHeading + ', ' + maxHeading + '\n');
+      
+        var answer = "-";
+        if (maxPitch - minPitch > 25) {
+          answer = "Yes";
+          }  else       if (maxHeading - minHeading > 40) {
+          answer = "No";
+          } 
+
+        if (answer != "-" ) {
+        resetQueue();
+                document.getElementById("answer").innerHTML = "Response: " + answer;
+        setInterval(function(){document.getElementById("answer").innerHTML = "Response: -"}, 3000);
+        say(answer);
+        }
+
+       }
+       }
+       
+	    
+  	function connectToHeadset(onOpenFcn){
+	//todo make this dyamic to adjust to SSL
+		var uri = 'ws://localhost:8888';
+		ws = new WebSocket(uri);
+		ws.onopen = function (evt) {
+		    writeToConsole("Connected to Plantronics headset service");
+		    
+		};
+		ws.onclose = function (evt) {
+		    writeToConsole("Plantronics headset service connection closed");
+		};
+		ws.onmessage = function (evt) {
+		    var pltMessage = JSON.parse(evt.data);
+		    processMessage(pltMessage)
+		    
+		};
+		ws.onerror = function (evt) {
+		    writeToConsole("Error connecting to Plantronics headset service");
+		    plantronicsSocket = null;
+		};
+	}
+	
+	function headsetConnected(){
+		alert("headset connection made");	
+	}
+	
+	function cal(){
+	
+		  if(ws == null){
+		  	  return;
+		  }
+      resetQueue();
+		  ws.send(JSON.stringify(COMMAND_CAL_HEADSET));
+	}
+	
+	function writeToConsole(message) {
+		var tn = document.createTextNode(message)
+		document.getElementById("console").appendChild(tn);
+    	}
+    	
+    	function doClear() {
+    		document.getElementById("console").innerHTML = '';
+    	}
+      
+      
+  function say(text) {
+  
+  isReqPending = true;
+  // lookup oauth token using ATT API
+var url = "https://api.att.com/oauth/token";
+var method = "POST";
+var postData = "client_id=acpklvfdauerel1rj80ucww1wtxzahjh&client_secret=gnacdoqkrnfo8brojddlzosyggx0yqy6&scope=SPEECH,TTS&grant_type=client_credentials";
+
+var async = true;
+
+var request = new XMLHttpRequest();
+
+request.onload = function () {
+
+   // You can get all kinds of information about the HTTP response.
+   var status = request.status; // HTTP response status, e.g., 200 for "200 OK"
+   var data = request.responseText; // Returned data, e.g., an HTML document.
+   
+   var accessMsg = JSON.parse(data);
+   var token = accessMsg.access_token;
+   //console.log("got token: " + token);
+   getSpeech(token, text);
+}
+request.open(method, url, async);
+
+request.setRequestHeader("Accept", "application/json");
+request.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+
+// Actually sends the request to the server.
+request.send(postData);
+
+}
+
+function getSpeech(token, text) {
+
+// lookup speech using ATT API
+
+console.log("getting speech: '" + text + "'");
+var url = "https://api.att.com/speech/v3/textToSpeech";
+var method = "POST";
+
+var async = true;
+
+var request = new XMLHttpRequest();
+
+request.onload = function () {
+   
+   if (request.readyState == 4) {
+   console.log("got speech");
+   play(request.response);
+   }
+   
+   isReqPending = false;
+}
+request.open(method, url, async);
+request.responseType = "arraybuffer";
+request.setRequestHeader("Authorization", "Bearer " + token);
+request.setRequestHeader("Accept", "audio/x-wav");
+request.setRequestHeader("Content-Type", "text/plain");
+
+// Actually sends the request to the server.
+request.send(text);
+}
+
+
+    /**
+     * Play.
+     * 
+     * @param {ArrayBuffer} data The ArrayBuffer that was loaded.
+     */
+    function play(data) {
+      var audioSource = audioCtx.createBufferSource();
+      audioSource.connect(audioCtx.destination);
+
+      //decode the loaded data
+      audioCtx.decodeAudioData(data, function(buf) {
+        audioSource.buffer = buf;
+        audioSource.noteOn(0);
+        audioSource.playbackRate.value = 1;
+      });
+
+    };
+</script>
+
+</head>
+
+<body>
+    <div id="intro">
+        <p class="title">Speech in Motion</p>
+        <p class="names">Sulakshan Shetty, Sushil Shiva, Alex Schemagin</p>
+        <div id="buttons">
+            <button class="intro first" onclick="connectToHeadset(headsetConnected);" >Connect</button>
+            <button class="intro last" onclick="cal();" >Calibrate</button>
+        </div>
+    </div>
+    
+    <div id="output">
+        <label id="answer">Response: -</label>
+        <div id="otherOutput">
+            <label id="heading">Heading: off</label>
+            <label id="pitch">Pitch: off</label>
+            <label id="roll">Roll: off</label>
+        </div>
+        <div id="otherOutput">
+            <label id="minPitch">Min Pitch: -</label>
+            <label id="maxPitch">Max Pitch: -</label>
+            <label id="minHeading">Min Heading: -</label>
+            <label id="maxHeading">Max Heading: -</label>
+        </div>
+    </div>
+    
+    <div id="log">
+        <div id="console"></div>
+        <button id="benefits" class="menu-button md-trigger" data-modal="modal-1">Benefits</button>
+        <button id="clearConsole" onclick="doClear()">Clear log</button>
+    </div>
+    
+    <div class="md-modal-bottom md-effect md-effect-bottom" id="modal-1">
+        <div class="md-content">
+            <div class="data bottom">
+                <ul>
+                    <li>Benefits:</li>
+                    <li>Universally recognized, physical responses</li>
+                    <li>Less disturbance for others around the user</li>
+                    <li>Fast response time for simple questions</li>
+                    <li>Little-to-no training required</li>
+                    <li>Extensible for many different industries</li>
+                    <li>Beneficial for speech-related rehabilitation</li>
+                    <li>Good use for accessibility purposes</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="md-overlay"></div>
+    
+    
+    <script type="text/javascript" src="classie.js"></script>
+    <script type="text/javascript" src="modalEffects.js"></script>
+    <script type="text/javascript">
+        var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+        document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+        </script>
+        <script type="text/javascript">
+        try {
+        var pageTracker = _gat._getTracker("UA-10451016-1");
+        pageTracker._trackPageview();
+        } catch(err) {}
+    </script>
+</body>
+</html>
